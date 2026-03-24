@@ -11,28 +11,6 @@ import { StatusBarProps } from '@/components/status-bar/status-bar';
 import { ToastAction } from '@/components/ui/toast';
 import { zipSync } from 'fflate';
 
-async function saveTrackToServer(
-    audioBuffer: ArrayBuffer,
-    track: QobuzTrack,
-    settings: SettingsProps,
-    coverArt: ArrayBuffer | null
-) {
-    const album = track.album;
-    const year = String(new Date(album.released_at * 1000).getFullYear());
-    const formData = new FormData();
-    formData.append('artist', album.artist.name);
-    formData.append('album', formatTitle(album));
-    formData.append('year', year);
-    formData.append('trackNumber', String(track.track_number));
-    formData.append('trackTotal', String(album.tracks_count));
-    formData.append('title', formatTitle(track));
-    formData.append('extension', codecMap[settings.outputCodec].extension);
-    formData.append('audio', new Blob([audioBuffer]));
-    if (coverArt) {
-        formData.append('cover', new Blob([coverArt], { type: 'image/jpeg' }));
-    }
-    await axios.post('/api/save-to-server', formData);
-}
 
 export const createDownloadJob = async (
     result: QobuzAlbum | QobuzTrack,
@@ -52,6 +30,27 @@ export const createDownloadJob = async (
                     const controller = new AbortController();
                     const signal = controller.signal;
                     let cancelled = false;
+
+                    if (settings.saveToServer) {
+                        setStatusBar((prev) => ({ ...prev, progress: 0, title: `Saving ${formatTitle(result)}`, description: 'Saving to server...' }));
+                        const track = result as QobuzTrack;
+                        await axios.post('/api/save-to-server', {
+                            type: 'track',
+                            track_id: track.id,
+                            quality: settings.outputQuality,
+                            artist: track.album.artist.name,
+                            album: formatTitle(track.album),
+                            year: new Date(track.album.released_at * 1000).getFullYear(),
+                            track_number: track.track_number,
+                            track_total: track.album.tracks_count,
+                            title: formatTitle(track),
+                            album_image: getFullResImageUrl(track)
+                        }, { headers: { 'Token-Country': country } });
+                        setStatusBar((prev) => ({ ...prev, progress: 100 }));
+                        resolve();
+                        return;
+                    }
+
                     setStatusBar((prev) => ({
                         ...prev,
                         progress: 0,
@@ -98,41 +97,34 @@ export const createDownloadJob = async (
                     let outputFile = await applyMetadata(inputFile, result as QobuzTrack, ffmpegState, settings, setStatusBar);
                     if (settings.outputCodec === 'FLAC' && settings.fixMD5) outputFile = await fixMD5Hash(outputFile, setStatusBar);
                     const title = formattedTitle + '.' + codecMap[settings.outputCodec].extension;
-                    if (settings.saveToServer) {
-                        setStatusBar((prev) => ({ ...prev, description: 'Saving to server...' }));
-                        await saveTrackToServer(outputFile as ArrayBuffer, result as QobuzTrack, settings, null);
-                    } else {
-                        const objectURL = URL.createObjectURL(new Blob([outputFile]));
-                        const audioElement = document.createElement('audio');
-                        audioElement.id = `track_${result.id}`;
-                        audioElement.src = objectURL;
-                        audioElement.onloadedmetadata = function () {
-                            if (Math.round(audioElement.duration) >= Math.round(result.duration)) {
-                                proceedDownload(objectURL, title);
-                                resolve();
-                            } else {
-                                toast({
-                                    title: 'Error',
-                                    description: `Qobuz provided a file shorter than expected for "${title}". This can indicate the file being a sample track rather than the full track`,
-                                    duration: Infinity,
-                                    action: (
-                                        <ToastAction
-                                            altText='Copy Stack'
-                                            onClick={() => {
-                                                proceedDownload(objectURL, title);
-                                            }}
-                                        >
-                                            Download anyway
-                                        </ToastAction>
-                                    )
-                                });
-                                resolve();
-                            }
-                        };
-                        document.body.append(audioElement);
-                        return;
-                    }
-                    resolve();
+                    const objectURL = URL.createObjectURL(new Blob([outputFile]));
+                    const audioElement = document.createElement('audio');
+                    audioElement.id = `track_${result.id}`;
+                    audioElement.src = objectURL;
+                    audioElement.onloadedmetadata = function () {
+                        if (Math.round(audioElement.duration) >= Math.round(result.duration)) {
+                            proceedDownload(objectURL, title);
+                            resolve();
+                        } else {
+                            toast({
+                                title: 'Error',
+                                description: `Qobuz provided a file shorter than expected for "${title}". This can indicate the file being a sample track rather than the full track`,
+                                duration: Infinity,
+                                action: (
+                                    <ToastAction
+                                        altText='Copy Stack'
+                                        onClick={() => {
+                                            proceedDownload(objectURL, title);
+                                        }}
+                                    >
+                                        Download anyway
+                                    </ToastAction>
+                                )
+                            });
+                            resolve();
+                        }
+                    };
+                    document.body.append(audioElement);
                 } catch (e) {
                     if (e instanceof AxiosError && e.code === 'ERR_CANCELED') resolve();
                     else {
@@ -159,6 +151,19 @@ export const createDownloadJob = async (
                     const controller = new AbortController();
                     const signal = controller.signal;
                     let cancelled = false;
+
+                    if (settings.saveToServer) {
+                        setStatusBar((prev) => ({ ...prev, progress: 0, title: `Saving ${formatTitle(result)}`, description: 'Saving album to server...' }));
+                        await axios.post('/api/save-to-server', {
+                            type: 'album',
+                            album_id: (result as QobuzAlbum).id,
+                            quality: settings.outputQuality
+                        }, { headers: { 'Token-Country': country } });
+                        setStatusBar((prev) => ({ ...prev, progress: 100 }));
+                        resolve();
+                        return;
+                    }
+
                     setStatusBar((prev) => ({
                         ...prev,
                         progress: 0,
@@ -257,20 +262,7 @@ export const createDownloadJob = async (
                         }
                     }
                     setStatusBar((prev) => ({ ...prev, progress: 100 }));
-                    if (settings.saveToServer) {
-                        for (const [index, buffer] of trackBuffers.entries()) {
-                            if (buffer) {
-                                const track = albumTracks[index];
-                                setStatusBar((prev) => ({
-                                    ...prev,
-                                    progress: Math.floor(((index + 1) / trackBuffers.length) * 100),
-                                    description: `Saving track ${track.track_number}/${albumTracks.length} to server...`
-                                }));
-                                const cover = index === 0 && albumArt !== false ? (albumArt as ArrayBuffer) : null;
-                                await saveTrackToServer(buffer, track, settings, cover);
-                            }
-                        }
-                    } else {
+                    {
                         setStatusBar((statusBar) => ({ ...statusBar, progress: 0, description: `Zipping album...` }));
                         await new Promise((resolve) => setTimeout(resolve, 500));
                         const zipFiles = {
