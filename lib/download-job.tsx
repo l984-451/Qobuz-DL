@@ -43,8 +43,14 @@ export const createDownloadJob = async (
                             year: new Date(track.album.released_at * 1000).getFullYear(),
                             track_number: track.track_number,
                             track_total: track.album.tracks_count,
+                            disc_number: track.media_number,
                             title: formatTitle(track),
-                            album_image: getFullResImageUrl(track)
+                            album_image: getFullResImageUrl(track),
+                            genre: (track.album as any).genre?.name,
+                            label: (track.album as any).label?.name,
+                            isrc: track.isrc,
+                            composer: track.composer?.name,
+                            copyright: (track as any).copyright
                         }, { headers: { 'Token-Country': country } });
                         setStatusBar((prev) => ({ ...prev, progress: 100 }));
                         resolve();
