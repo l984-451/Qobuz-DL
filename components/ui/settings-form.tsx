@@ -261,6 +261,18 @@ const SettingsForm = () => {
                                 disabled={settings.outputCodec === 'WAV'}
                             />
                         </div>
+                        <div className='flex items-center gap-2 pt-2'>
+                            <div className='flex flex-col'>
+                                <p className='font-medium'>Save to Server</p>
+                                <p className='text-xs text-muted-foreground'>
+                                    If enabled, music saves directly to the server library as Artist/(Year) Album/Track.flac instead of downloading to your browser.
+                                </p>
+                            </div>
+                            <Checkbox
+                                checked={settings.saveToServer}
+                                onCheckedChange={(checked: boolean) => setSettings((settings) => ({ ...settings, saveToServer: checked }))}
+                            />
+                        </div>
                         {settings.outputCodec === 'OPUS' && (
                             <p className='text-xs text-destructive font-semibold text-center'>WARNING: OGG (OPUS) files do not support album art.</p>
                         )}

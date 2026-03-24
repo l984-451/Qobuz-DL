@@ -5,11 +5,34 @@ import { artistReleaseCategories } from '@/components/artist-dialog';
 import { cleanFileName, formatBytes, formatCustomTitle, resizeImage } from './utils';
 import { createJob } from './status-bar/jobs';
 import { Disc3Icon, DiscAlbumIcon } from 'lucide-react';
-import { FetchedQobuzAlbum, formatTitle, getFullResImageUrl, QobuzAlbum, QobuzArtistResults, QobuzTrack } from './qobuz-dl';
+import { FetchedQobuzAlbum, formatArtists, formatTitle, getFullResImageUrl, QobuzAlbum, QobuzArtistResults, QobuzTrack } from './qobuz-dl';
 import { SettingsProps } from './settings-provider';
 import { StatusBarProps } from '@/components/status-bar/status-bar';
 import { ToastAction } from '@/components/ui/toast';
 import { zipSync } from 'fflate';
+
+async function saveTrackToServer(
+    audioBuffer: ArrayBuffer,
+    track: QobuzTrack,
+    settings: SettingsProps,
+    coverArt: ArrayBuffer | null
+) {
+    const album = track.album;
+    const year = String(new Date(album.released_at * 1000).getFullYear());
+    const formData = new FormData();
+    formData.append('artist', album.artist.name);
+    formData.append('album', formatTitle(album));
+    formData.append('year', year);
+    formData.append('trackNumber', String(track.track_number));
+    formData.append('trackTotal', String(album.tracks_count));
+    formData.append('title', formatTitle(track));
+    formData.append('extension', codecMap[settings.outputCodec].extension);
+    formData.append('audio', new Blob([audioBuffer]));
+    if (coverArt) {
+        formData.append('cover', new Blob([coverArt], { type: 'image/jpeg' }));
+    }
+    await axios.post('/api/save-to-server', formData);
+}
 
 export const createDownloadJob = async (
     result: QobuzAlbum | QobuzTrack,
@@ -74,35 +97,42 @@ export const createDownloadJob = async (
                     const inputFile = response.data;
                     let outputFile = await applyMetadata(inputFile, result as QobuzTrack, ffmpegState, settings, setStatusBar);
                     if (settings.outputCodec === 'FLAC' && settings.fixMD5) outputFile = await fixMD5Hash(outputFile, setStatusBar);
-                    const objectURL = URL.createObjectURL(new Blob([outputFile]));
                     const title = formattedTitle + '.' + codecMap[settings.outputCodec].extension;
-                    const audioElement = document.createElement('audio');
-                    audioElement.id = `track_${result.id}`;
-                    audioElement.src = objectURL;
-                    audioElement.onloadedmetadata = function () {
-                        if (Math.round(audioElement.duration) >= Math.round(result.duration)) {
-                            proceedDownload(objectURL, title);
-                            resolve();
-                        } else {
-                            toast({
-                                title: 'Error',
-                                description: `Qobuz provided a file shorter than expected for "${title}". This can indicate the file being a sample track rather than the full track`,
-                                duration: Infinity,
-                                action: (
-                                    <ToastAction
-                                        altText='Copy Stack'
-                                        onClick={() => {
-                                            proceedDownload(objectURL, title);
-                                        }}
-                                    >
-                                        Download anyway
-                                    </ToastAction>
-                                )
-                            });
-                            resolve();
-                        }
-                    };
-                    document.body.append(audioElement);
+                    if (settings.saveToServer) {
+                        setStatusBar((prev) => ({ ...prev, description: 'Saving to server...' }));
+                        await saveTrackToServer(outputFile as ArrayBuffer, result as QobuzTrack, settings, null);
+                    } else {
+                        const objectURL = URL.createObjectURL(new Blob([outputFile]));
+                        const audioElement = document.createElement('audio');
+                        audioElement.id = `track_${result.id}`;
+                        audioElement.src = objectURL;
+                        audioElement.onloadedmetadata = function () {
+                            if (Math.round(audioElement.duration) >= Math.round(result.duration)) {
+                                proceedDownload(objectURL, title);
+                                resolve();
+                            } else {
+                                toast({
+                                    title: 'Error',
+                                    description: `Qobuz provided a file shorter than expected for "${title}". This can indicate the file being a sample track rather than the full track`,
+                                    duration: Infinity,
+                                    action: (
+                                        <ToastAction
+                                            altText='Copy Stack'
+                                            onClick={() => {
+                                                proceedDownload(objectURL, title);
+                                            }}
+                                        >
+                                            Download anyway
+                                        </ToastAction>
+                                    )
+                                });
+                                resolve();
+                            }
+                        };
+                        document.body.append(audioElement);
+                        return;
+                    }
+                    resolve();
                 } catch (e) {
                     if (e instanceof AxiosError && e.code === 'ERR_CANCELED') resolve();
                     else {
@@ -226,31 +256,47 @@ export const createDownloadJob = async (
                             trackBuffers[index] = outputFile;
                         }
                     }
-                    setStatusBar((statusBar) => ({ ...statusBar, progress: 0, description: `Zipping album...` }));
-                    await new Promise((resolve) => setTimeout(resolve, 500));
-                    const zipFiles = {
-                        'cover.jpg': new Uint8Array(albumArt),
-                        ...trackBuffers.reduce(
-                            (acc, buffer, index) => {
-                                if (buffer) {
-                                    const fileName = `${(index + 1).toString().padStart(Math.max(String(albumTracks.length - 1).length, 2), '0')} ${formatCustomTitle(settings.trackName, albumTracks[index])}.${codecMap[settings.outputCodec].extension}`;
-
-                                    acc[cleanFileName(fileName)] = new Uint8Array(buffer);
-                                }
-                                return acc;
-                            },
-                            {} as { [key: string]: Uint8Array }
-                        )
-                    } as { [key: string]: Uint8Array };
-                    if (albumArt === false) delete zipFiles['cover.jpg'];
-                    const zippedFile = zipSync(zipFiles, { level: 0 });
-                    const zipBlob = new Blob([zippedFile as BlobPart], { type: 'application/zip' });
                     setStatusBar((prev) => ({ ...prev, progress: 100 }));
-                    const objectURL = URL.createObjectURL(zipBlob);
-                    saveAs(objectURL, formattedZipTitle + '.zip');
-                    setTimeout(() => {
-                        URL.revokeObjectURL(objectURL);
-                    }, 100);
+                    if (settings.saveToServer) {
+                        for (const [index, buffer] of trackBuffers.entries()) {
+                            if (buffer) {
+                                const track = albumTracks[index];
+                                setStatusBar((prev) => ({
+                                    ...prev,
+                                    progress: Math.floor(((index + 1) / trackBuffers.length) * 100),
+                                    description: `Saving track ${track.track_number}/${albumTracks.length} to server...`
+                                }));
+                                const cover = index === 0 && albumArt !== false ? (albumArt as ArrayBuffer) : null;
+                                await saveTrackToServer(buffer, track, settings, cover);
+                            }
+                        }
+                    } else {
+                        setStatusBar((statusBar) => ({ ...statusBar, progress: 0, description: `Zipping album...` }));
+                        await new Promise((resolve) => setTimeout(resolve, 500));
+                        const zipFiles = {
+                            'cover.jpg': new Uint8Array(albumArt),
+                            ...trackBuffers.reduce(
+                                (acc, buffer, index) => {
+                                    if (buffer) {
+                                        const fileName = `${(index + 1).toString().padStart(Math.max(String(albumTracks.length - 1).length, 2), '0')} ${formatCustomTitle(settings.trackName, albumTracks[index])}.${codecMap[settings.outputCodec].extension}`;
+
+                                        acc[cleanFileName(fileName)] = new Uint8Array(buffer);
+                                    }
+                                    return acc;
+                                },
+                                {} as { [key: string]: Uint8Array }
+                            )
+                        } as { [key: string]: Uint8Array };
+                        if (albumArt === false) delete zipFiles['cover.jpg'];
+                        const zippedFile = zipSync(zipFiles, { level: 0 });
+                        const zipBlob = new Blob([zippedFile as BlobPart], { type: 'application/zip' });
+                        setStatusBar((prev) => ({ ...prev, progress: 100 }));
+                        const objectURL = URL.createObjectURL(zipBlob);
+                        saveAs(objectURL, formattedZipTitle + '.zip');
+                        setTimeout(() => {
+                            URL.revokeObjectURL(objectURL);
+                        }, 100);
+                    }
                     resolve();
                 } catch (e) {
                     if (e instanceof AxiosError && e.code === 'ERR_CANCELED') resolve();

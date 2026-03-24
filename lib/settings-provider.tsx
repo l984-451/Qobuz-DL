@@ -13,6 +13,7 @@ export type SettingsProps = {
     albumArtQuality: number;
     zipName: string;
     trackName: string;
+    saveToServer: boolean;
 };
 
 export const nameVariables: string[] = ['artists', 'name', 'year', 'duration'];
@@ -32,7 +33,7 @@ const isValidSettings = (obj: any): obj is SettingsProps => {
             typeof obj.albumArtQuality === 'number' &&
             obj.albumArtQuality >= 0.1 &&
             obj.albumArtQuality <= 1,
-        typeof obj.zipName === 'string' && typeof obj.trackName === 'string'
+        typeof obj.zipName === 'string' && typeof obj.trackName === 'string' && typeof obj.saveToServer === 'boolean'
     );
 };
 
@@ -56,7 +57,8 @@ export const defaultSettings: SettingsProps = {
     albumArtSize: 3600,
     albumArtQuality: 1,
     zipName: '{artists} - {name}',
-    trackName: '{artists} - {name}'
+    trackName: '{artists} - {name}',
+    saveToServer: false
 };
 
 export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
