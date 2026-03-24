@@ -61,6 +61,9 @@ async function saveTrack(meta: TrackMeta) {
         } catch { /* optional */ }
     }
 
+    // Skip if already downloaded
+    if (fs.existsSync(trackPath)) return;
+
     fs.writeFileSync(tmpPath, Buffer.from(response.data));
 
     // Build ffmpeg metadata args
