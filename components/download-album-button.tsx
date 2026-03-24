@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, ButtonProps } from './ui/button';
-import { DownloadIcon, FileArchiveIcon, MusicIcon } from 'lucide-react';
+import { DownloadIcon, FileArchiveIcon, MusicIcon, ServerIcon } from 'lucide-react';
 import { StatusBarProps } from './status-bar/status-bar';
 import { FFmpegType } from '@/lib/ffmpeg-functions';
 import { SettingsProps } from '@/lib/settings-provider';
@@ -47,6 +47,28 @@ const DownloadButton = React.forwardRef<HTMLButtonElement, DownloadAlbumButtonPr
             if (open) onOpen?.();
             else onClose?.();
         });
+
+        if (settings.saveToServer) {
+            return (
+                <Button
+                    className={className}
+                    ref={ref}
+                    variant={variant}
+                    size={size}
+                    onClick={() => {
+                        createDownloadJob(result, setStatusBar, ffmpegState, settings, toast, fetchedAlbumData, setFetchedAlbumData, country);
+                        toast({
+                            title: `Added '${formatTitle(result)}'`,
+                            description: 'Saving album to server library'
+                        });
+                    }}
+                    {...props}
+                >
+                    <ServerIcon className='!size-4' />
+                </Button>
+            );
+        }
+
         return (
             <>
                 <DropdownMenu open={open} onOpenChange={setOpen}>

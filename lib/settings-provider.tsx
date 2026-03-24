@@ -58,7 +58,7 @@ export const defaultSettings: SettingsProps = {
     albumArtQuality: 1,
     zipName: '{artists} - {name}',
     trackName: '{artists} - {name}',
-    saveToServer: false
+    saveToServer: true
 };
 
 export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
