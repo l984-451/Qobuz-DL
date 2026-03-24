@@ -38,7 +38,7 @@ export const filterData: FilterDataType = [
 const SearchView = () => {
     const { resolvedTheme } = useTheme();
     const [results, setResults] = useState<QobuzSearchResults | null>(null);
-    const [searchField, setSearchField] = useState<QobuzSearchFilters>('albums');
+    const [searchField, setSearchField] = useState<QobuzSearchFilters>('artists');
     const [query, setQuery] = useState<string>('');
     const [loading, setLoading] = useState<boolean>(false);
     const [searching, setSearching] = useState<boolean>(false);
@@ -259,7 +259,7 @@ const SearchView = () => {
                         });
                         setQuery('');
                         setResults(null);
-                        setSearchField('albums');
+                        setSearchField('artists');
                     }}
                     initial={{ opacity: 0, y: -25 }}
                     animate={logoAnimationControls}

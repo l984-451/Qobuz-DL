@@ -102,8 +102,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                                 </ThemeProvider>
                             </SettingsProvider>
                         </StatusBarProvider>
-                        <script src='https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.9.7/dist/ffmpeg.min.js'></script>
-                        <script src='https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js'></script>
+                        <script src='/vendor/ffmpeg.min.js'></script>
+                        <script src='/vendor/fflate.js'></script>
                     </CountryProvider>
                 </FFmpegProvider>
             </body>
