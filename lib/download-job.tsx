@@ -5,7 +5,7 @@ import { artistReleaseCategories } from '@/components/artist-dialog';
 import { cleanFileName, formatBytes, formatCustomTitle, resizeImage } from './utils';
 import { createJob } from './status-bar/jobs';
 import { Disc3Icon, DiscAlbumIcon } from 'lucide-react';
-import { FetchedQobuzAlbum, formatArtists, formatTitle, getFullResImageUrl, QobuzAlbum, QobuzArtistResults, QobuzTrack } from './qobuz-dl';
+import { FetchedQobuzAlbum, formatArtists, formatTitle, getFullAlbumInfo, getFullResImageUrl, QobuzAlbum, QobuzArtistResults, QobuzTrack } from './qobuz-dl';
 import { SettingsProps } from './settings-provider';
 import { StatusBarProps } from '@/components/status-bar/status-bar';
 import { ToastAction } from '@/components/ui/toast';
@@ -159,12 +159,35 @@ export const createDownloadJob = async (
                     let cancelled = false;
 
                     if (settings.saveToServer) {
-                        setStatusBar((prev) => ({ ...prev, progress: 0, title: `Saving ${formatTitle(result)}`, description: 'Saving album to server...' }));
-                        await axios.post('/api/save-to-server', {
-                            type: 'album',
-                            album_id: (result as QobuzAlbum).id,
-                            quality: settings.outputQuality
-                        }, { headers: { 'Token-Country': country } });
+                        setStatusBar((prev) => ({ ...prev, progress: 0, title: `Saving ${formatTitle(result)}`, description: 'Fetching album data...' }));
+                        const albumData = await getFullAlbumInfo(fetchedAlbumData, setFetchedAlbumData, result as QobuzAlbum, country);
+                        const tracks = albumData.tracks.items.filter((t: QobuzTrack) => t.streamable);
+                        const coverUrl = getFullResImageUrl(albumData);
+                        for (const [index, track] of tracks.entries()) {
+                            setStatusBar((prev) => ({
+                                ...prev,
+                                progress: Math.round((index / tracks.length) * 100),
+                                description: `Saving ${index + 1}/${tracks.length}: ${formatTitle(track)}`
+                            }));
+                            await axios.post('/api/save-to-server', {
+                                type: 'track',
+                                track_id: track.id,
+                                quality: settings.outputQuality,
+                                artist: albumData.artist.name,
+                                album: formatTitle(albumData),
+                                year: new Date(albumData.released_at * 1000).getFullYear(),
+                                track_number: track.track_number,
+                                track_total: tracks.length,
+                                disc_number: track.media_number,
+                                title: formatTitle(track),
+                                album_image: coverUrl,
+                                genre: (albumData as any).genre?.name,
+                                label: (albumData as any).label?.name,
+                                isrc: track.isrc,
+                                composer: track.composer?.name,
+                                copyright: (track as any).copyright
+                            }, { headers: { 'Token-Country': country } });
+                        }
                         setStatusBar((prev) => ({ ...prev, progress: 100 }));
                         resolve();
                         return;
